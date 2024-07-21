@@ -81,12 +81,29 @@ _flash_attn_2_4_plus = _flash_attn_version >= PkgVersion("2.4")
 _flash_attn_2_4_1_plus = _flash_attn_version >= PkgVersion("2.4.1")
 _flash_attn_2_6_1_plus = _flash_attn_version >= PkgVersion("2.6.1")
 
-if _flash_attn_version >= _flash_attn_version_required:
+try:
+    _flash_attn_v3_version = PkgVersion(get_pkg_version("flashattn-hopper"))
+    _flash_attn_3_plus = _flash_attn_v3_version >= PkgVersion("2.6.1")
+except:
+    _flash_attn_3_plus = False
+    warnings.warn(
+        "To use flash-attn v3, please use the following commands to install: \n"
+        """(1) pip install "git+https://github.com/Dao-AILab/flash-attention.git#egg=flashattn-hopper&subdirectory=hopper" \n"""
+        """(2) python_path=`python -c "import site; print(site.getsitepackages()[0])"` \n"""
+        """(3) mkdir -p $python_path/flashattn_hopper \n"""
+        """(4) wget -P $python_path/flashattn_hopper https://raw.githubusercontent.com/Dao-AILab/flash-attention/main/hopper/flash_attn_interface.py"""
+    )
+
+if _flash_attn_version >= _flash_attn_version_required and not _flash_attn_3_plus:
     from flash_attn.flash_attn_interface import flash_attn_varlen_func as flash_attn_forward_func
     from flash_attn.flash_attn_interface import _flash_attn_varlen_forward as _flash_attn_forward
     from flash_attn.flash_attn_interface import _flash_attn_varlen_backward as _flash_attn_backward
     from flash_attn_2_cuda import varlen_bwd as flash_attn_cuda_bwd
-
+else:
+    from flashattn_hopper.flash_attn_interface import flash_attn_func as flash_attn_forward_func
+    from flashattn_hopper.flash_attn_interface import _flash_attn_forward as _flash_attn_forward
+    from flashattn_hopper.flash_attn_interface import _flash_attn_backward as _flash_attn_backward
+    
 META_QKV = tex.FP8FwdTensors.GEMM1_OUTPUT
 META_DQKV = tex.FP8BwdTensors.GRAD_OUTPUT1
 META_O = tex.FP8FwdTensors.GEMM2_INPUT
@@ -3173,7 +3190,7 @@ class FlashAttention(torch.nn.Module):
 
         if qkv_format in ["sbhd", "bshd"]:
             max_seqlen_q, max_seqlen_kv = query_layer.shape[1], key_layer.shape[1]
-            if not context_parallel:
+            if not context_parallel and not _flash_attn_3_plus:
                 # [b * s, h, d]
                 query_layer, key_layer, value_layer = [
                     x.view(x.shape[0] * x.shape[1], *x.shape[2:])
@@ -3282,20 +3299,29 @@ class FlashAttention(torch.nn.Module):
                     fa_optional_forward_kwargs["alibi_slopes"] = alibi_slopes
                 if _flash_attn_2_4_1_plus:
                     fa_optional_forward_kwargs["deterministic"] = self.deterministic
-                output = flash_attn_forward_func(
-                    query_layer,
-                    key_layer,
-                    value_layer,
-                    cu_seqlens_q,
-                    cu_seqlens_kv,
-                    max_seqlen_q,
-                    max_seqlen_kv,
-                    self.attention_dropout if self.training else 0.0,
-                    softmax_scale=self.softmax_scale,
-                    causal="causal" in attn_mask_type,
-                    softcap=self.softcap,
-                    **fa_optional_forward_kwargs,
-                )
+                if _flash_attn_3_plus:
+                    output, _ = flash_attn_forward_func(
+                        query_layer,
+                        key_layer,
+                        value_layer,
+                        softmax_scale=self.softmax_scale,
+                        causal="causal" in attn_mask_type,
+                    )
+                else:
+                    output = flash_attn_forward_func(
+                        query_layer,
+                        key_layer,
+                        value_layer,
+                        cu_seqlens_q,
+                        cu_seqlens_kv,
+                        max_seqlen_q,
+                        max_seqlen_kv,
+                        self.attention_dropout if self.training else 0.0,
+                        softmax_scale=self.softmax_scale,
+                        causal="causal" in attn_mask_type,
+                        softcap=self.softcap,
+                        **fa_optional_forward_kwargs,
+                    )
 
         if qkv_format in ["sbhd", "bshd"] and "padding" in attn_mask_type:
             output = UnpackTensor.apply(indices_q, batch_size * max_seqlen_q, output)
@@ -5729,6 +5755,14 @@ class DotProductAttention(TransformerEngineBaseModule):
                 use_unfused_attention = _attention_backends["use_unfused_attention"]
 
             if use_flash_attention:
+                if _flash_attn_3_plus:
+                    assert (
+                        not context_parallel
+                        and qkv_format == "bshd"
+                        and self.attention_dropout == 0.0
+                    ), "flash-attn 3 does not support context parallelism, dropout, "
+                    f"or qkv_format={qkv_format}"
+                    
                 if core_attention_bias_type == "alibi":
                     alibi_slopes, _ = get_alibi(
                         query_layer.shape[-2],
