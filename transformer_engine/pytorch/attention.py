@@ -79,7 +79,7 @@ _flash_attn_2_1_plus = _flash_attn_version >= PkgVersion("2.1")
 _flash_attn_2_3_plus = _flash_attn_version >= PkgVersion("2.3")
 _flash_attn_2_4_plus = _flash_attn_version >= PkgVersion("2.4")
 _flash_attn_2_4_1_plus = _flash_attn_version >= PkgVersion("2.4.1")
-_flash_attn_2_6_1_plus = _flash_attn_version >= PkgVersion("2.6.2")
+_flash_attn_2_6_2_plus = _flash_attn_version >= PkgVersion("2.6.2")
 
 if _flash_attn_version >= _flash_attn_version_required:
     from flash_attn.flash_attn_interface import flash_attn_varlen_func as flash_attn_forward_func
@@ -3111,7 +3111,7 @@ class FlashAttention(torch.nn.Module):
         if softcap > 0.0:
             assert (
                 _flash_attn_2_6_2_plus
-            ), f"FlashAttention minimum version {PkgVersion("2.6.2")} is required for softcap."
+            ), f"FlashAttention minimum version 2.6.2 is required for softcap."
         self.softcap = softcap
 
     def forward(
