@@ -973,6 +973,17 @@ def _get_full_cu_seqlens(
         )
     return _cu_seqlens_cache[(batch_size, max_seqlen)]
 
+def _get_cu_seqlens(
+    attention_mask: Optional[Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]] = None,
+):
+    rows_with_single_one = []
+    for i in range(attention_mask.size(0)):
+        count_ones = torch.sum(attention_mask[i] == 1).item()
+        if count_ones == 1:
+            rows_with_single_one.append(i)
+    _cu_seqlens=torch.tensor(rows_with_single_one, dtype=torch.int32)
+
+    return _cu_seqlens
 
 @jit_fuser
 def pack_tensor(
@@ -5106,6 +5117,7 @@ class DotProductAttention(TransformerEngineBaseModule):
         cp_stream: torch.cuda.Stream = None,
         softmax_scale: Optional[float] = None,
         softcap: float = 0.0,
+        cu_attention_mask: bool = False,
     ) -> None:
         super().__init__()
 
@@ -5129,6 +5141,7 @@ class DotProductAttention(TransformerEngineBaseModule):
         self.cp_group = cp_group
         self.cp_global_ranks = cp_global_ranks
         self.cp_stream = cp_stream
+        self.cu_attention_mask = cu_attention_mask
 
         self.hidden_size_per_attention_head = kv_channels
 
@@ -5590,16 +5603,25 @@ class DotProductAttention(TransformerEngineBaseModule):
                             cu_seqlens_q = get_cu_seqlens(attention_mask[0])
                             cu_seqlens_kv = get_cu_seqlens(attention_mask[1])
                     else:
-                        cu_seqlens_q = _get_full_cu_seqlens(
-                            batch_size,
-                            max_seqlen_q,
-                            query_layer.device,
-                        )
-                        cu_seqlens_kv = _get_full_cu_seqlens(
-                            batch_size,
-                            max_seqlen_kv,
-                            key_layer.device,
-                        )
+                        if self.cu_attention_mask:
+                            assert(
+                                batch_size==1
+                            ), "custom attention mask is only supported for batch_size=1!"
+                            cu_seqlens_q=_get_cu_seqlens(
+                                attention_mask,
+                            )
+                            cu_seqlens_kv = cu_seqlens_q
+                        else:
+                            cu_seqlens_q = _get_full_cu_seqlens(
+                                batch_size,
+                                max_seqlen_q,
+                                query_layer.device,
+                            )
+                            cu_seqlens_kv = _get_full_cu_seqlens(
+                                batch_size,
+                                max_seqlen_kv,
+                                key_layer.device,
+                            )
 
             if (
                 isinstance(query_layer, Float8Tensor)
