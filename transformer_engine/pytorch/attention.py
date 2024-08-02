@@ -974,16 +974,38 @@ def _get_full_cu_seqlens(
     return _cu_seqlens_cache[(batch_size, max_seqlen)]
 
 def _get_cu_seqlens(
-    attention_mask: Optional[Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]] = None,
-):
-    rows_with_single_one = []
-    for i in range(attention_mask.size(0)):
-        count_ones = torch.sum(attention_mask[i] == 1).item()
-        if count_ones == 1:
-            rows_with_single_one.append(i)
-    _cu_seqlens=torch.tensor(rows_with_single_one, dtype=torch.int32)
+    attention_mask: Optional[Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]],
+    device: torch.device,
+    max_seqlen: int,
+) -> torch.Tensor:
+    """
+    Cumulative sequence lengths according custom attention mask
+    """
+    global _cu_seqlens_cache
+    if (attention_mask, max_seqlen) not in _cu_seqlens_cache:
+        false_counts = torch.sum(~attention_mask, dim=1)
+        # warnings.warn(f'[zldebug] false_counts: {false_counts}')
+        _cu_seqlens = torch.where(false_counts == 1)[0].to(torch.int32)
+        # warnings.warn(f'[zldebug] _cu_seqlens: {_cu_seqlens}')
+        if _cu_seqlens.numel()>1:
+            _cu_seqlens = torch.cat((torch.tensor([0],device=device,dtype=torch.int32),_cu_seqlens-1,torch.tensor([max_seqlen],device=device,dtype=torch.int32)))
+        else:
+            _cu_seqlens = torch.cat((_cu_seqlens,torch.tensor([max_seqlen],device=device,dtype=torch.int32)))
+        _cu_seqlens_cache[(attention_mask, max_seqlen)] = _cu_seqlens
+    return _cu_seqlens_cache[(attention_mask, max_seqlen)]
 
-    return _cu_seqlens
+
+    # rows_with_single_one = []
+    # for i in range(attention_mask.size(0)):
+    #     count_ones = torch.sum(attention_mask[i] == 1).item()
+    #     if count_ones == 1:
+    #         rows_with_single_one.append(i)
+    # if len(rows_with_single_one) > 1:
+    #     rows_with_single_one = [0] + [i-1 for i in rows_with_single_one] + [max_seqlen]
+    # else:
+    #     rows_with_single_one=rows_with_single_one+[max_seqlen]
+    # _cu_seqlens=torch.tensor(rows_with_single_one, dtype=torch.int32,device=device,)
+
 
 @jit_fuser
 def pack_tensor(
@@ -5607,8 +5629,11 @@ class DotProductAttention(TransformerEngineBaseModule):
                             assert(
                                 batch_size==1
                             ), "custom attention mask is only supported for batch_size=1!"
+                            attention_mask_2d = attention_mask.squeeze()
                             cu_seqlens_q=_get_cu_seqlens(
-                                attention_mask,
+                                attention_mask_2d,
+                                query_layer.device,
+                                max_seqlen_q,
                             )
                             cu_seqlens_kv = cu_seqlens_q
                         else:
