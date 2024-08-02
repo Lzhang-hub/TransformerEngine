@@ -101,9 +101,9 @@ if _flash_attn_version >= _flash_attn_version_required and not _flash_attn_3_plu
     from flash_attn_2_cuda import varlen_bwd as flash_attn_cuda_bwd
 else:
     warnings.warn("flash-attn v3 hopper is avaliable, it will be used instead of flash-attn v2.6.1. in TE")
-    from flashattn_hopper.flash_attn_interface import flash_attn_func as flash_attn_forward_func
-    from flashattn_hopper.flash_attn_interface import _flash_attn_forward as _flash_attn_forward
-    from flashattn_hopper.flash_attn_interface import _flash_attn_backward as _flash_attn_backward
+    from flashattn_hopper.flash_attn_interface import flash_attn_varlen_func as flash_attn_forward_func
+    from flashattn_hopper.flash_attn_interface import _flash_attn_varlen_forward as _flash_attn_forward
+    from flashattn_hopper.flash_attn_interface import _flash_attn_varlen_backward as _flash_attn_backward
     
 META_QKV = tex.FP8FwdTensors.GEMM1_OUTPUT
 META_DQKV = tex.FP8BwdTensors.GRAD_OUTPUT1
