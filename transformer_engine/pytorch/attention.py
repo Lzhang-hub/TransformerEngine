@@ -3122,7 +3122,7 @@ class FlashAttention(torch.nn.Module):
         if softcap > 0.0:
             assert (
                 _flash_attn_2_6_1_plus
-            ), f"FlashAttention minimum version {PkgVersion("2.6.1")} is required for softcap."
+            ), f"FlashAttention minimum version 2.6.1 is required for softcap."
 
         self.softmax_scale = softmax_scale
         self.attention_dropout_ctx = attention_dropout_ctx
