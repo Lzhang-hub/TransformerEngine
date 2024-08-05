@@ -73,7 +73,7 @@ from transformer_engine.pytorch.graph import is_graph_capturing
 
 _flash_attn_version = PkgVersion(get_pkg_version("flash-attn"))
 _flash_attn_version_required = PkgVersion("2.0.6")
-_flash_attn_max_version = PkgVersion("2.6.1")
+_flash_attn_max_version = PkgVersion("2.6.3")
 _flash_attn_2_plus = _flash_attn_version >= PkgVersion("2")
 _flash_attn_2_1_plus = _flash_attn_version >= PkgVersion("2.1")
 _flash_attn_2_3_plus = _flash_attn_version >= PkgVersion("2.3")
@@ -94,6 +94,10 @@ except:
         """(4) wget -P $python_path/flashattn_hopper https://raw.githubusercontent.com/Dao-AILab/flash-attention/main/hopper/flash_attn_interface.py"""
     )
 
+_NVTE_FLASH_ATTN3=os.getenv("NVTE_FLASH_ATTN3", 0)
+if _NVTE_FLASH_ATTN==0:
+    _flash_attn_3_plus=False
+
 if _flash_attn_version >= _flash_attn_version_required and not _flash_attn_3_plus:
     from flash_attn.flash_attn_interface import flash_attn_varlen_func as flash_attn_forward_func
     from flash_attn.flash_attn_interface import _flash_attn_varlen_forward as _flash_attn_forward
@@ -101,9 +105,15 @@ if _flash_attn_version >= _flash_attn_version_required and not _flash_attn_3_plu
     from flash_attn_2_cuda import varlen_bwd as flash_attn_cuda_bwd
 else:
     warnings.warn("flash-attn v3 hopper is avaliable, it will be used instead of flash-attn v2.6.1. in TE")
-    from flashattn_hopper.flash_attn_interface import flash_attn_varlen_func as flash_attn_forward_func
-    from flashattn_hopper.flash_attn_interface import _flash_attn_varlen_forward as _flash_attn_forward
-    from flashattn_hopper.flash_attn_interface import _flash_attn_varlen_backward as _flash_attn_backward
+    # from flashattn_hopper.flash_attn_interface import flash_attn_varlen_func as flash_attn_forward_func
+    # from flashattn_hopper.flash_attn_interface import _flash_attn_varlen_forward as _flash_attn_forward
+    # from flashattn_hopper.flash_attn_interface import _flash_attn_varlen_backward as _flash_attn_backward
+    # from flashattn_hopper_cuda import varlen_bwd as flash_attn_cuda_bwd
+
+    from flash_attn_interface import flash_attn_varlen_func as flash_attn_forward_func
+    from flash_attn_interface import _flash_attn_varlen_forward as _flash_attn_forward
+    from flash_attn_interface import _flash_attn_varlen_backward as _flash_attn_backward
+    from flashattn_hopper_cuda import varlen_bwd as flash_attn_cuda_bwd
     
 META_QKV = tex.FP8FwdTensors.GEMM1_OUTPUT
 META_DQKV = tex.FP8BwdTensors.GRAD_OUTPUT1
@@ -3191,7 +3201,7 @@ class FlashAttention(torch.nn.Module):
 
         if qkv_format in ["sbhd", "bshd"]:
             max_seqlen_q, max_seqlen_kv = query_layer.shape[1], key_layer.shape[1]
-            if not context_parallel and not _flash_attn_3_plus:
+            if not context_parallel:
                 # [b * s, h, d]
                 query_layer, key_layer, value_layer = [
                     x.view(x.shape[0] * x.shape[1], *x.shape[2:])
@@ -3305,6 +3315,10 @@ class FlashAttention(torch.nn.Module):
                         query_layer,
                         key_layer,
                         value_layer,
+                        cu_seqlens_q,
+                        cu_seqlens_kv,
+                        max_seqlen_q,
+                        max_seqlen_kv,
                         softmax_scale=self.softmax_scale,
                         causal="causal" in attn_mask_type,
                     )
@@ -5756,13 +5770,13 @@ class DotProductAttention(TransformerEngineBaseModule):
                 use_unfused_attention = _attention_backends["use_unfused_attention"]
 
             if use_flash_attention:
-                if _flash_attn_3_plus:
-                    assert (
-                        not context_parallel
-                        and qkv_format == "bshd"
-                        and self.attention_dropout == 0.0
-                    ), "flash-attn 3 does not support context parallelism, dropout, "
-                    f"or qkv_format={qkv_format}"
+                # if _flash_attn_3_plus:
+                #     assert (
+                #         not context_parallel
+                #         and qkv_format == "bshd"
+                #         and self.attention_dropout == 0.0
+                #     ), "flash-attn 3 does not support context parallelism, dropout, "
+                #     f"or qkv_format={qkv_format}"
                     
                 if core_attention_bias_type == "alibi":
                     alibi_slopes, _ = get_alibi(
