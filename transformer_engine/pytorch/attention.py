@@ -95,7 +95,7 @@ except:
     )
 
 _NVTE_FLASH_ATTN3=os.getenv("NVTE_FLASH_ATTN3", 0)
-if _NVTE_FLASH_ATTN==0:
+if _NVTE_FLASH_ATTN3==0:
     _flash_attn_3_plus=False
 
 if _flash_attn_version >= _flash_attn_version_required and not _flash_attn_3_plus:
